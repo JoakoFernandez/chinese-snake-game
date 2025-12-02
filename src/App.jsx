@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 const ChineseSnakeGame = () => {
-  const GRID_SIZE = 20;
+  const GRID_SIZE = 25;
   const CELL_SIZE = 25;
-  const INITIAL_SPEED = 120;
+  const SPEEDS = {
+    easy: 180,
+    medium: 150,
+    hard: 120
+  };
   
   const vocabulary = [
     { char: '近', translation: 'near' },
@@ -113,12 +117,13 @@ const ChineseSnakeGame = () => {
   const [gameOver, setGameOver] = useState(false);
   const [score, setScore] = useState(0);
   const [gameStarted, setGameStarted] = useState(false);
-  const [speed, setSpeed] = useState(INITIAL_SPEED);
+  const [speed, setSpeed] = useState(120);
   const [isPaused, setIsPaused] = useState(false);
   const [failedWord, setFailedWord] = useState(null);
   const [gameMode, setGameMode] = useState(null); // 'char-to-eng', 'eng-to-char', 'mixed'
   const [currentQuestionType, setCurrentQuestionType] = useState(null); // 'char' or 'eng'
   const [directionQueue, setDirectionQueue] = useState([]);
+  const [difficulty, setDifficulty] = useState(null); // 'easy', 'medium', 'hard'
 
   const generateNewRound = useCallback(() => {
     const randomIndex = Math.floor(Math.random() * vocabulary.length);
@@ -169,7 +174,7 @@ const ChineseSnakeGame = () => {
     const placeWord = (option, snakePos) => {
       const displayText = questionType === 'char' ? option.translation : option.char;
       const textLength = displayText.length;
-      const wordWidth = Math.max(3, Math.ceil(textLength / 4));
+      const wordWidth = Math.max(4, Math.ceil(textLength / 2.5))
       
       for (let attempts = 0; attempts < 100; attempts++) {
         const x = Math.floor(Math.random() * (GRID_SIZE - wordWidth - 1)) + 1;
@@ -203,23 +208,25 @@ const ChineseSnakeGame = () => {
     setOptions(words);
   }, [snake, gameMode]);
 
-  const resetGame = (mode) => {
+  const resetGame = (mode, diff) => {
     setSnake([{ x: 10, y: 10 }]);
     setDirection({ x: 1, y: 0 });
     setDirectionQueue([]);
     setGameOver(false);
     setScore(0);
     setGameStarted(true);
-    setSpeed(INITIAL_SPEED);
+    setSpeed(SPEEDS[diff]);
     setIsPaused(false);
     setFailedWord(null);
     setGameMode(mode);
+    setDifficulty(diff);
     setTimeout(() => generateNewRound(), 0);
   };
 
   const backToMenu = () => {
     setGameStarted(false);
     setGameMode(null);
+    setDifficulty(null);
     setScore(0);
     setGameOver(false);
   };
@@ -279,79 +286,96 @@ const ChineseSnakeGame = () => {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [direction, gameStarted, gameOver, isPaused, snake]);
 
-  useEffect(() => {
-    if (!gameStarted || gameOver || isPaused) return;
+// ...
+useEffect(() => {
+  if (!gameStarted || gameOver || isPaused) return;
 
-    const gameLoop = setInterval(() => {
-      // Process direction queue before moving
-      setDirectionQueue(prevQueue => {
-        if (prevQueue.length > 0) {
-          setDirection(prevQueue[0]);
-          return prevQueue.slice(1);
-        }
-        return prevQueue;
-      });
+  const gameLoop = setInterval(() => {
+    // Process direction queue before moving
+    setDirectionQueue(prevQueue => {
+      // ... (existing direction queue logic)
+      if (prevQueue.length > 0) {
+        setDirection(prevQueue[0]);
+        return prevQueue.slice(1);
+      }
+      return prevQueue;
+    });
 
-      setSnake(prevSnake => {
-        const newHead = {
-          x: prevSnake[0].x + direction.x,
-          y: prevSnake[0].y + direction.y
-        };
+    setSnake(prevSnake => {
+      let newHead = {
+        x: prevSnake[0].x + direction.x,
+        y: prevSnake[0].y + direction.y
+      };
 
-        if (newHead.x < 0 || newHead.x >= GRID_SIZE || newHead.y < 0 || newHead.y >= GRID_SIZE) {
+      // --- START OF MODIFICATION ---
+      const isWallCollision = newHead.x < 0 || newHead.x >= GRID_SIZE || newHead.y < 0 || newHead.y >= GRID_SIZE;
+
+      if (isWallCollision) {
+        if (difficulty === 'easy') {
+          // Wrap around logic for Easy mode
+          newHead.x = (newHead.x + GRID_SIZE) % GRID_SIZE;
+          newHead.y = (newHead.y + GRID_SIZE) % GRID_SIZE;
+        } else {
+          // Game Over for Medium/Hard difficulty
           setGameOver(true);
           return prevSnake;
         }
+      }
+      // --- END OF MODIFICATION ---
 
-        if (prevSnake.some(segment => segment.x === newHead.x && segment.y === newHead.y)) {
-          setGameOver(true);
-          return prevSnake;
-        }
-
-        const eatenOption = options.find(
-          t => {
-            for (let i = 0; i < t.width; i++) {
-              if (t.x + i === newHead.x && t.y === newHead.y) {
-                return true;
-              }
+      // Check collision with itself
+      if (prevSnake.some(segment => segment.x === newHead.x && segment.y === newHead.y)) {
+        setGameOver(true);
+        return prevSnake;
+      }
+      
+      // ... (rest of the logic for eating options)
+      
+      const eatenOption = options.find(
+        t => {
+          for (let i = 0; i < t.width; i++) {
+            if (t.x + i === newHead.x && t.y === newHead.y) {
+              return true;
             }
-            return false;
           }
-        );
-
-        if (eatenOption) {
-          if (eatenOption.isCorrect) {
-            setScore(s => s + 1);
-            setSpeed(s => Math.max(50, s - 5));
-            setIsPaused(true);
-            
-            setTimeout(() => {
-              setIsPaused(false);
-            }, 3000);
-            
-            generateNewRound();
-            return [newHead, ...prevSnake];
-          } else {
-            setFailedWord({ 
-              char: currentTarget.char, 
-              translation: currentTarget.translation,
-              questionType: currentQuestionType
-            });
-            setGameOver(true);
-            return prevSnake;
-          }
+          return false;
         }
+      );
 
-        return [newHead, ...prevSnake.slice(0, -1)];
-      });
-    }, speed);
+      if (eatenOption) {
+        // ... (existing logic for correct/incorrect food)
+        if (eatenOption.isCorrect) {
+          setScore(s => s + 1);
+          setSpeed(s => Math.max(50, s - 5));
+          setIsPaused(true);
+          
+          setTimeout(() => {
+            setIsPaused(false);
+          }, 3000);
+          
+          generateNewRound();
+          return [newHead, ...prevSnake];
+        } else {
+          setFailedWord({ 
+            char: currentTarget.char, 
+            translation: currentTarget.translation,
+            questionType: currentQuestionType
+          });
+          setGameOver(true);
+          return prevSnake;
+        }
+      }
 
-    return () => clearInterval(gameLoop);
-  }, [direction, gameStarted, gameOver, options, generateNewRound, speed, isPaused, currentTarget, currentQuestionType]);
+      return [newHead, ...prevSnake.slice(0, -1)];
+    });
+  }, speed);
+
+  return () => clearInterval(gameLoop);
+}, [direction, gameStarted, gameOver, options, generateNewRound, speed, isPaused, currentTarget, currentQuestionType, difficulty]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-emerald-100 via-green-50 to-teal-100 p-4">
-      <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg shadow-2xl p-8 border-4 border-emerald-300">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-green-200 p-4">
+      <div className="bg-white rounded-lg shadow-2xl p-8 border-4 border-emerald-300">
         <h1 className="text-4xl font-bold text-center mb-2 text-red-600">
           中文蛇 Chinese Snake
         </h1>
@@ -361,33 +385,73 @@ const ChineseSnakeGame = () => {
         
         {!gameStarted ? (
           <div className="text-center">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800">Select Game Mode</h2>
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">Select Difficulty & Mode</h2>
             
-            <div className="space-y-4 mb-6">
-              <button
-                onClick={() => resetGame('char-to-eng')}
-                className="w-full bg-blue-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-blue-700 transition"
-              >
-                Mode 1: Character → English
-                <div className="text-sm font-normal mt-1">See Chinese, eat English translation</div>
-              </button>
-              
-              <button
-                onClick={() => resetGame('eng-to-char')}
-                className="w-full bg-green-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-green-700 transition"
-              >
-                Mode 2: English → Character
-                <div className="text-sm font-normal mt-1">See English, eat Chinese character</div>
-              </button>
-              
-              <button
-                onClick={() => resetGame('mixed')}
-                className="w-full bg-purple-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-purple-700 transition"
-              >
-                Mode 3: Mixed Challenge
-                <div className="text-sm font-normal mt-1">Random questions both ways!</div>
-              </button>
-            </div>
+            {!difficulty ? (
+              <div className="space-y-4 mb-6">
+                <h3 className="text-lg font-semibold text-gray-700 mb-3">Choose Difficulty:</h3>
+                
+                <button
+                  onClick={() => setDifficulty('easy')}
+                  className="w-full bg-green-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-green-700 transition"
+                >
+                  Easy
+                  <div className="text-sm font-normal mt-1">Slower speed + Pass through walls</div>
+                </button>
+                
+                <button
+                  onClick={() => setDifficulty('medium')}
+                  className="w-full bg-yellow-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-yellow-700 transition"
+                >
+                  Medium
+                  <div className="text-sm font-normal mt-1">Moderate speed + Walls are deadly</div>
+                </button>
+                
+                <button
+                  onClick={() => setDifficulty('hard')}
+                  className="w-full bg-red-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-red-700 transition"
+                >
+                  Hard
+                  <div className="text-sm font-normal mt-1">Fast speed + Walls are deadly</div>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4 mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-700">Choose Game Mode:</h3>
+                  <button
+                    onClick={() => setDifficulty(null)}
+                    className="text-sm text-blue-600 hover:text-blue-800 underline"
+                  >
+                    ← Change Difficulty
+                  </button>
+                </div>
+                
+                <button
+                  onClick={() => resetGame('char-to-eng', difficulty)}
+                  className="w-full bg-blue-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-blue-700 transition"
+                >
+                  Mode 1: Character → English
+                  <div className="text-sm font-normal mt-1">See Chinese, eat English translation</div>
+                </button>
+                
+                <button
+                  onClick={() => resetGame('eng-to-char', difficulty)}
+                  className="w-full bg-green-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-green-700 transition"
+                >
+                  Mode 2: English → Character
+                  <div className="text-sm font-normal mt-1">See English, eat Chinese character</div>
+                </button>
+                
+                <button
+                  onClick={() => resetGame('mixed', difficulty)}
+                  className="w-full bg-purple-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-purple-700 transition"
+                >
+                  Mode 3: Mixed Challenge
+                  <div className="text-sm font-normal mt-1">Random questions both ways!</div>
+                </button>
+              </div>
+            )}
             
             <div className="mt-6 text-left text-sm text-gray-700 max-w-md">
               <p className="font-bold mb-2">How to play:</p>
@@ -395,7 +459,8 @@ const ChineseSnakeGame = () => {
                 <li>Use arrow keys to move</li>
                 <li>Eat the correct answer</li>
                 <li>Wrong answer = Game Over</li>
-                <li>Don't hit walls or yourself!</li>
+                <li>Easy mode: walls teleport you to the other side</li>
+                <li>Medium/Hard: walls are deadly!</li>
               </ul>
             </div>
           </div>
@@ -407,7 +472,8 @@ const ChineseSnakeGame = () => {
                   {currentQuestionType === 'char' ? currentTarget.char : currentTarget.translation}
                 </div>
                 <div className="text-xs text-gray-400">
-                  Mode: {gameMode === 'char-to-eng' ? 'Char → Eng' : gameMode === 'eng-to-char' ? 'Eng → Char' : 'Mixed'}
+                  Mode: {gameMode === 'char-to-eng' ? 'Char → Eng' : gameMode === 'eng-to-char' ? 'Eng → Char' : 'Mixed'} | 
+                  Difficulty: {difficulty === 'easy' ? 'Easy' : difficulty === 'medium' ? 'Medium' : 'Hard'}
                 </div>
               </div>
             )}
@@ -579,7 +645,7 @@ const ChineseSnakeGame = () => {
                   </div>
                   <div className="flex gap-4">
                     <button
-                      onClick={() => resetGame(gameMode)}
+                      onClick={() => resetGame(gameMode, difficulty)}
                       className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition"
                     >
                       Play Again

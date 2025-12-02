@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import './index.css';
 
 const ChineseSnakeGame = () => {
   const GRID_SIZE = 20;
@@ -109,21 +108,35 @@ const ChineseSnakeGame = () => {
 
   const [snake, setSnake] = useState([{ x: 10, y: 10 }]);
   const [direction, setDirection] = useState({ x: 1, y: 0 });
-  const [currentChar, setCurrentChar] = useState(null);
-  const [translations, setTranslations] = useState([]);
+  const [currentTarget, setCurrentTarget] = useState(null);
+  const [options, setOptions] = useState([]);
   const [gameOver, setGameOver] = useState(false);
   const [score, setScore] = useState(0);
   const [gameStarted, setGameStarted] = useState(false);
   const [speed, setSpeed] = useState(INITIAL_SPEED);
   const [isPaused, setIsPaused] = useState(false);
   const [failedWord, setFailedWord] = useState(null);
+  const [gameMode, setGameMode] = useState(null); // 'char-to-eng', 'eng-to-char', 'mixed'
+  const [currentQuestionType, setCurrentQuestionType] = useState(null); // 'char' or 'eng'
+  const [directionQueue, setDirectionQueue] = useState([]);
 
   const generateNewRound = useCallback(() => {
     const randomIndex = Math.floor(Math.random() * vocabulary.length);
     const target = vocabulary[randomIndex];
     
+    // Determine question type based on game mode
+    let questionType;
+    if (gameMode === 'char-to-eng') {
+      questionType = 'char';
+    } else if (gameMode === 'eng-to-char') {
+      questionType = 'eng';
+    } else { // mixed
+      questionType = Math.random() < 0.5 ? 'char' : 'eng';
+    }
+    setCurrentQuestionType(questionType);
+    
     const incorrectOptions = vocabulary
-      .filter(v => v.translation !== target.translation)
+      .filter(v => v.translation !== target.translation && v.char !== target.char)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
     
@@ -132,12 +145,15 @@ const ChineseSnakeGame = () => {
     const placedWords = [];
     
     const isPositionValid = (x, y, width, snakePos) => {
-      // Check collision with snake (including a safety margin of 3 cells)
+      // Check collision with snake (including a safety margin of 5 cells from start position)
       for (let i = 0; i < width; i++) {
         for (const segment of snakePos) {
           const distance = Math.abs((x + i) - segment.x) + Math.abs(y - segment.y);
           if (distance < 3) return false;
         }
+        // Extra check: don't spawn in front of starting position (10, 10)
+        const distanceFromStart = Math.abs((x + i) - 10) + Math.abs(y - 10);
+        if (distanceFromStart < 5) return false;
       }
       
       // Check collision with other words
@@ -151,114 +167,148 @@ const ChineseSnakeGame = () => {
     };
     
     const placeWord = (option, snakePos) => {
-      const textLength = option.translation.length;
+      const displayText = questionType === 'char' ? option.translation : option.char;
+      const textLength = displayText.length;
       const wordWidth = Math.max(3, Math.ceil(textLength / 4));
       
-      // Try to find a valid position
       for (let attempts = 0; attempts < 100; attempts++) {
         const x = Math.floor(Math.random() * (GRID_SIZE - wordWidth - 1)) + 1;
         const y = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
         
         if (isPositionValid(x, y, wordWidth, snakePos)) {
           const word = {
-            text: option.translation,
+            text: displayText,
             x: x,
             y: y,
             width: wordWidth,
-            isCorrect: option.translation === target.translation
+            isCorrect: option.char === target.char && option.translation === target.translation
           };
           placedWords.push(word);
           return word;
         }
       }
       
-      // Fallback: place in a corner if no valid position found
       return {
-        text: option.translation,
+        text: displayText,
         x: 1,
         y: GRID_SIZE - 2,
         width: wordWidth,
-        isCorrect: option.translation === target.translation
+        isCorrect: option.char === target.char && option.translation === target.translation
       };
     };
     
     const words = allOptions.map(option => placeWord(option, snake));
     
-    setCurrentChar(target);
-    setTranslations(words);
-  }, [snake]);
+    setCurrentTarget(target);
+    setOptions(words);
+  }, [snake, gameMode]);
 
-  const resetGame = () => {
+  const resetGame = (mode) => {
     setSnake([{ x: 10, y: 10 }]);
     setDirection({ x: 1, y: 0 });
+    setDirectionQueue([]);
     setGameOver(false);
     setScore(0);
     setGameStarted(true);
     setSpeed(INITIAL_SPEED);
     setIsPaused(false);
     setFailedWord(null);
-    generateNewRound();
+    setGameMode(mode);
+    setTimeout(() => generateNewRound(), 0);
   };
 
-useEffect(() => {
-  const handleKeyPress = (e) => {
-    if (!gameStarted || gameOver) return;
-    
-    // Prevent default behavior for arrow keys
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-      e.preventDefault();
-    }
-    
-    // Resume game on any arrow key press when paused
-    if (isPaused) {
+  const backToMenu = () => {
+    setGameStarted(false);
+    setGameMode(null);
+    setScore(0);
+    setGameOver(false);
+  };
+
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (!gameStarted || gameOver) return;
+      
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-        setIsPaused(false);
+        e.preventDefault();
       }
-    }
-    
-    switch (e.key) {
-      case 'ArrowUp':
-        if (direction.y === 0) setDirection({ x: 0, y: -1 });
-        break;
-      case 'ArrowDown':
-        if (direction.y === 0) setDirection({ x: 0, y: 1 });
-        break;
-      case 'ArrowLeft':
-        if (direction.x === 0) setDirection({ x: -1, y: 0 });
-        break;
-      case 'ArrowRight':
-        if (direction.x === 0) setDirection({ x: 1, y: 0 });
-        break;
-    }
-  };
+      
+      if (isPaused) {
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+          setIsPaused(false);
+        }
+      }
+      
+      setDirectionQueue(prevQueue => {
+        const currentDir = prevQueue.length > 0 ? prevQueue[prevQueue.length - 1] : direction;
+        let newDir = null;
+        
+        switch (e.key) {
+          case 'ArrowUp':
+            if (currentDir.y === 0 && !(snake.length > 1 && snake[1].y < snake[0].y)) {
+              newDir = { x: 0, y: -1 };
+            }
+            break;
+          case 'ArrowDown':
+            if (currentDir.y === 0 && !(snake.length > 1 && snake[1].y > snake[0].y)) {
+              newDir = { x: 0, y: 1 };
+            }
+            break;
+          case 'ArrowLeft':
+            if (currentDir.x === 0 && !(snake.length > 1 && snake[1].x < snake[0].x)) {
+              newDir = { x: -1, y: 0 };
+            }
+            break;
+          case 'ArrowRight':
+            if (currentDir.x === 0 && !(snake.length > 1 && snake[1].x > snake[0].x)) {
+              newDir = { x: 1, y: 0 };
+            }
+            break;
+        }
+        
+        if (newDir && (prevQueue.length === 0 || 
+            prevQueue[prevQueue.length - 1].x !== newDir.x || 
+            prevQueue[prevQueue.length - 1].y !== newDir.y)) {
+          // Only keep last 2 directions in queue to prevent overflow
+          return [...prevQueue.slice(-1), newDir];
+        }
+        return prevQueue;
+      });
+    };
 
-  window.addEventListener('keydown', handleKeyPress);
-  return () => window.removeEventListener('keydown', handleKeyPress);
-}, [direction, gameStarted, gameOver, isPaused]);
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [direction, gameStarted, gameOver, isPaused, snake]);
 
   useEffect(() => {
     if (!gameStarted || gameOver || isPaused) return;
 
     const gameLoop = setInterval(() => {
+      // Process direction queue before moving
+      setDirectionQueue(prevQueue => {
+        if (prevQueue.length > 0) {
+          setDirection(prevQueue[0]);
+          return prevQueue.slice(1);
+        }
+        return prevQueue;
+      });
+
       setSnake(prevSnake => {
         const newHead = {
           x: prevSnake[0].x + direction.x,
           y: prevSnake[0].y + direction.y
         };
 
-        // Check wall collision
         if (newHead.x < 0 || newHead.x >= GRID_SIZE || newHead.y < 0 || newHead.y >= GRID_SIZE) {
           setGameOver(true);
           return prevSnake;
         }
 
-        // Check self collision
         if (prevSnake.some(segment => segment.x === newHead.x && segment.y === newHead.y)) {
           setGameOver(true);
           return prevSnake;
         }
 
-        const eatenTranslation = translations.find(
+        const eatenOption = options.find(
           t => {
             for (let i = 0; i < t.width; i++) {
               if (t.x + i === newHead.x && t.y === newHead.y) {
@@ -269,13 +319,12 @@ useEffect(() => {
           }
         );
 
-        if (eatenTranslation) {
-          if (eatenTranslation.isCorrect) {
+        if (eatenOption) {
+          if (eatenOption.isCorrect) {
             setScore(s => s + 1);
             setSpeed(s => Math.max(50, s - 5));
             setIsPaused(true);
             
-            // Auto-resume after 3 seconds
             setTimeout(() => {
               setIsPaused(false);
             }, 3000);
@@ -283,7 +332,11 @@ useEffect(() => {
             generateNewRound();
             return [newHead, ...prevSnake];
           } else {
-            setFailedWord({ char: currentChar.char, translation: currentChar.translation });
+            setFailedWord({ 
+              char: currentTarget.char, 
+              translation: currentTarget.translation,
+              questionType: currentQuestionType
+            });
             setGameOver(true);
             return prevSnake;
           }
@@ -294,43 +347,67 @@ useEffect(() => {
     }, speed);
 
     return () => clearInterval(gameLoop);
-  }, [direction, gameStarted, gameOver, translations, generateNewRound, speed, isPaused]);
+  }, [direction, gameStarted, gameOver, options, generateNewRound, speed, isPaused, currentTarget, currentQuestionType]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-red-50 to-orange-50 p-4">
-      <div className="bg-white rounded-lg shadow-2xl p-8">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-emerald-100 via-green-50 to-teal-100 p-4">
+      <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg shadow-2xl p-8 border-4 border-emerald-300">
         <h1 className="text-4xl font-bold text-center mb-2 text-red-600">
           中文蛇 Chinese Snake
         </h1>
         <p className="text-center text-gray-600 mb-4">
-          Eat the correct translation!
+          Learn Chinese characters while playing!
         </p>
         
         {!gameStarted ? (
           <div className="text-center">
-            <button
-              onClick={resetGame}
-              className="bg-red-600 text-white px-8 py-4 rounded-lg text-xl font-bold hover:bg-red-700 transition"
-            >
-              Start Game
-            </button>
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">Select Game Mode</h2>
+            
+            <div className="space-y-4 mb-6">
+              <button
+                onClick={() => resetGame('char-to-eng')}
+                className="w-full bg-blue-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-blue-700 transition"
+              >
+                Mode 1: Character → English
+                <div className="text-sm font-normal mt-1">See Chinese, eat English translation</div>
+              </button>
+              
+              <button
+                onClick={() => resetGame('eng-to-char')}
+                className="w-full bg-green-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-green-700 transition"
+              >
+                Mode 2: English → Character
+                <div className="text-sm font-normal mt-1">See English, eat Chinese character</div>
+              </button>
+              
+              <button
+                onClick={() => resetGame('mixed')}
+                className="w-full bg-purple-600 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-purple-700 transition"
+              >
+                Mode 3: Mixed Challenge
+                <div className="text-sm font-normal mt-1">Random questions both ways!</div>
+              </button>
+            </div>
+            
             <div className="mt-6 text-left text-sm text-gray-700 max-w-md">
               <p className="font-bold mb-2">How to play:</p>
               <ul className="list-disc list-inside space-y-1">
                 <li>Use arrow keys to move</li>
-                <li>A Chinese character will appear at the top</li>
-                <li>Eat only the correct English translation</li>
-                <li>Eating wrong translations = Game Over</li>
-                <li>Don't hit yourself!</li>
+                <li>Eat the correct answer</li>
+                <li>Wrong answer = Game Over</li>
+                <li>Don't hit walls or yourself!</li>
               </ul>
             </div>
           </div>
         ) : (
           <>
-            {currentChar && (
+            {currentTarget && (
               <div className="text-center mb-4">
                 <div className="text-6xl font-bold text-red-600 mb-2">
-                  {currentChar.char}
+                  {currentQuestionType === 'char' ? currentTarget.char : currentTarget.translation}
+                </div>
+                <div className="text-xs text-gray-400">
+                  Mode: {gameMode === 'char-to-eng' ? 'Char → Eng' : gameMode === 'eng-to-char' ? 'Eng → Char' : 'Mixed'}
                 </div>
               </div>
             )}
@@ -345,44 +422,139 @@ useEffect(() => {
             </div>
 
             <div
-              className="relative bg-gray-100 border-4 border-gray-300"
+              className="relative border-4 border-slate-700 shadow-inner"
               style={{
                 width: GRID_SIZE * CELL_SIZE,
-                height: GRID_SIZE * CELL_SIZE
+                height: GRID_SIZE * CELL_SIZE,
+                backgroundImage: 'url(/background.jpg)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center'
               }}
             >
-              {snake.map((segment, i) => (
-                <div
-                  key={i}
-                  className="absolute transition-all duration-100"
-                  style={{
-                    left: segment.x * CELL_SIZE + 1,
-                    top: segment.y * CELL_SIZE + 1,
-                    width: CELL_SIZE - 2,
-                    height: CELL_SIZE - 2,
-                    backgroundColor: i === 0 ? '#4ade80' : '#22c55e',
-                    borderRadius: '4px'
-                  }}
-                />
-              ))}
+              {snake.map((segment, i) => {
+                const isHead = i === 0;
+                const isTail = i === snake.length - 1;
+                
+                return (
+                  <div
+                    key={i}
+                    className="absolute"
+                    style={{
+                      left: segment.x * CELL_SIZE + 1,
+                      top: segment.y * CELL_SIZE + 1,
+                      width: CELL_SIZE - 2,
+                      height: CELL_SIZE - 2,
+                      backgroundColor: '#4285f4',
+                      borderRadius: isHead ? '8px' : isTail ? '6px' : '3px',
+                      boxShadow: 'inset 0 0 0 2px #5a9eff, 0 2px 4px rgba(0,0,0,0.2)',
+                      transition: 'all 0.1s ease'
+                    }}
+                  >
+                    {isHead && (
+                      <>
+                        {/* Eyes */}
+                        <div
+                          className="absolute bg-white rounded-full"
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            top: direction.y === 1 ? '13px' : '5px',
+                            left: direction.x === 1 ? '13px' : direction.x === -1 ? '4px' : '5px',
+                            boxShadow: 'inset 1px 1px 0 rgba(0,0,0,0.3)'
+                          }}
+                        >
+                          <div
+                            className="absolute bg-black rounded-full"
+                            style={{
+                              width: '3px',
+                              height: '3px',
+                              top: '2px',
+                              left: '2px'
+                            }}
+                          />
+                        </div>
+                        <div
+                          className="absolute bg-white rounded-full"
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            top: direction.y === 1 ? '13px' : '5px',
+                            left: direction.x === 1 ? '13px' : direction.x === -1 ? '4px' : '13px',
+                            boxShadow: 'inset 1px 1px 0 rgba(0,0,0,0.3)'
+                          }}
+                        >
+                          <div
+                            className="absolute bg-black rounded-full"
+                            style={{
+                              width: '3px',
+                              height: '3px',
+                              top: '2px',
+                              left: '2px'
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
 
-              {translations.map((trans, i) => (
+              {options.map((option, i) => (
                 <div
                   key={i}
-                  className="absolute bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold rounded-md shadow-md border border-red-700 flex items-center justify-center"
+                  className="absolute text-white font-bold rounded-lg shadow-lg border-2 flex items-center justify-center"
                   style={{
-                    left: trans.x * CELL_SIZE + 1,
-                    top: trans.y * CELL_SIZE + 1,
-                    width: trans.width * CELL_SIZE - 2,
+                    left: option.x * CELL_SIZE + 1,
+                    top: option.y * CELL_SIZE + 1,
+                    width: option.width * CELL_SIZE - 2,
                     height: CELL_SIZE - 2,
-                    fontSize: trans.width > 4 ? '10px' : '11px',
+                    background: 'radial-gradient(circle at 30% 30%, #ef4444, #dc2626)',
+                    borderColor: '#991b1b',
+                    fontSize: option.width > 4 ? '10px' : '11px',
                     padding: '2px 4px',
                     whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
+                    overflow: 'visible',
+                    textOverflow: 'ellipsis',
+                    boxShadow: '0 3px 6px rgba(0,0,0,0.3), inset 0 1px 2px rgba(255,255,255,0.3)'
                   }}
                 >
-                  {trans.text}
+                  {/* Stick */}
+                  <div
+                    className="absolute bg-amber-800"
+                    style={{
+                      width: '2px',
+                      height: '6px',
+                      top: '-5px',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      borderRadius: '1px'
+                    }}
+                  />
+                  {/* Leaf */}
+                  <div
+                    className="absolute bg-green-600"
+                    style={{
+                      width: '8px',
+                      height: '5px',
+                      top: '-7px',
+                      left: '50%',
+                      transform: 'translateX(-50%) rotate(-20deg)',
+                      borderRadius: '50% 0 50% 0',
+                      boxShadow: 'inset -1px -1px 0 rgba(0,0,0,0.2)'
+                    }}
+                  />
+                  {/* Highlight spot */}
+                  <div
+                    className="absolute rounded-full bg-white opacity-40"
+                    style={{
+                      width: '8px',
+                      height: '8px',
+                      top: '3px',
+                      left: '6px',
+                      filter: 'blur(2px)'
+                    }}
+                  />
+                  {option.text}
                 </div>
               ))}
 
@@ -405,12 +577,20 @@ useEffect(() => {
                   <div className="text-white text-xl mb-6">
                     Final Score: {score}
                   </div>
-                  <button
-                    onClick={resetGame}
-                    className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition"
-                  >
-                    Play Again
-                  </button>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => resetGame(gameMode)}
+                      className="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700 transition"
+                    >
+                      Play Again
+                    </button>
+                    <button
+                      onClick={backToMenu}
+                      className="bg-gray-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-gray-700 transition"
+                    >
+                      Main Menu
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

@@ -124,6 +124,9 @@ const ChineseSnakeGame = () => {
   const [currentQuestionType, setCurrentQuestionType] = useState(null); // 'char' or 'eng'
   const [directionQueue, setDirectionQueue] = useState([]);
   const [difficulty, setDifficulty] = useState(null); // 'easy', 'medium', 'hard'
+  const [music] = useState(() => new Audio('/Door.wav'));
+  const [crashSound] = useState(() => new Audio('/crash.wav'));
+
 
   const generateNewRound = useCallback(() => {
     const randomIndex = Math.floor(Math.random() * vocabulary.length);
@@ -372,6 +375,27 @@ useEffect(() => {
 
   return () => clearInterval(gameLoop);
 }, [direction, gameStarted, gameOver, options, generateNewRound, speed, isPaused, currentTarget, currentQuestionType, difficulty]);
+
+useEffect(() => {
+  if (gameStarted && !gameOver) {
+    music.loop = true;
+    music.volume = 0.3;
+    music.play().catch(() => {});
+  } else {
+    music.pause();
+    music.currentTime = 0;
+  }
+}, [gameStarted, gameOver]);
+
+
+useEffect(() => {
+  if (gameOver) {
+    crashSound.volume = 0.09;      
+    crashSound.currentTime = 0;   
+    crashSound.play().catch(() => {});
+  }
+}, [gameOver]);
+
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-green-200 p-4">
